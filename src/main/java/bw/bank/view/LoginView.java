@@ -42,11 +42,9 @@ public class LoginView {
         login.setOnAction(e -> {
             try {
                 if (adminBtn.isSelected()) {
-                    auth.loginAdmin(username.getText(), password.getText());
-                    Ui.info("Administrator screen comes in the next step.");
+                    app.showAdminDashboard(auth.loginAdmin(username.getText(), password.getText()));
                 } else {
-                    auth.loginCustomer(username.getText(), password.getText());
-                    Ui.info("Customer screen comes in the next step.");
+                    app.showCustomerDashboard(auth.loginCustomer(username.getText(), password.getText()));
                 }
             } catch (Exception ex) {
                 Ui.error(ex.getMessage());

@@ -1,6 +1,10 @@
 package bw.bank.view;
 
+import bw.bank.controller.AccountController;
+import bw.bank.controller.AdminController;
 import bw.bank.controller.AuthController;
+import bw.bank.model.BankAdministrator;
+import bw.bank.model.Customer;
 import javafx.application.Application;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
@@ -9,6 +13,8 @@ import javafx.stage.Stage;
 public class MainApp extends Application {
     private Stage stage;
     private final AuthController authController = new AuthController();
+    private final AccountController accountController = new AccountController();
+    private final AdminController adminController = new AdminController();
 
     @Override
     public void start(Stage primaryStage) {
@@ -24,6 +30,14 @@ public class MainApp extends Application {
 
     public void showRegister(Runnable onBack) {
         show(new RegisterView(authController, onBack).getRoot());
+    }
+
+    public void showCustomerDashboard(Customer customer) {
+        show(new CustomerDashboardView(this, customer, accountController).getRoot());
+    }
+
+    public void showAdminDashboard(BankAdministrator admin) {
+        show(new AdminDashboardView(this, admin, adminController, authController).getRoot());
     }
 
     private void show(Parent root) {
