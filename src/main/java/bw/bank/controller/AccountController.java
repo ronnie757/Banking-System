@@ -1,108 +1,136 @@
 package bw.bank.controller;
 
+import bw.bank.dao.AccountDAO;
+import bw.bank.dao.CustomerDAO;
+import bw.bank.dao.TransactionDAO;
+import bw.bank.db.Database;
 import bw.bank.exception.BankException;
 import bw.bank.model.Account;
+import bw.bank.model.Bank;
 import bw.bank.model.ChequeAccount;
+import bw.bank.model.InterestBearing;
 import bw.bank.model.InvestmentAccount;
 import bw.bank.model.SavingsAccount;
 import bw.bank.model.Transaction;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
-/** TEMPORARY in-memory version so the screens can run. Replaced by the real one in Step 6. */
+/** Mediates between the account screens and the core model + DAOs. */
 public class AccountController {
-    static final List<Account> STORE = new ArrayList<>();
+    private final Bank bank = new Bank("B001", "BAC Bank", "Gaborone, Botswana", "Main Branch");
+    private final AccountDAO accountDAO = new AccountDAO();
+    private final CustomerDAO customerDAO = new CustomerDAO();
+    private final TransactionDAO transactionDAO = new TransactionDAO();
 
-    static {
-        try {
-            Account s = new SavingsAccount("AC100001", "CU100001", "Main Branch", LocalDate.now(), BigDecimal.ZERO);
-            s.deposit(new BigDecimal("1500"), "Initial deposit");
-            Account i = new InvestmentAccount("AC100002", "CU100001", "Main Branch", LocalDate.now(), BigDecimal.ZERO);
-            i.deposit(new BigDecimal("800"), "Initial deposit");
-            STORE.add(s);
-            STORE.add(i);
-        } catch (BankException e) {
-            throw new IllegalStateException(e);
+    public Account openAccount(String customerId, String type, String initialDepositText,
+                               String employerName, String companyAddress) throws BankException {
+        if (customerDAO.findById(customerId) == null) {
+            throw new BankException("Customer not found.");
         }
-    }
-
-    public Account openAccount(String customerId, String type, String initialText,
-                               String employer, String companyAddress) throws BankException {
-        if (type == null) {
+        if (type == null || type.isBlank()) {
             throw new BankException("Choose an account type.");
         }
-        BigDecimal initial = (initialText == null || initialText.isBlank())
-                ? BigDecimal.ZERO : parse(initialText);
-        String number = "AC" + (100001 + STORE.size());
-        Account a;
-        switch (type.toUpperCase()) {
+        BigDecimal initial = (initialDepositText == null || initialDepositText.isBlank())
+                ? BigDecimal.ZERO : parseAmount(initialDepositText);
+
+        String number = Database.newId("AC", "accounts", "account_number");
+        LocalDate today = LocalDate.now();
+        String branch = bank.getDefaultBranch();
+        Account account;
+
+        switch (type.trim().toUpperCase()) {
             case "SAVINGS":
-                a = new SavingsAccount(number, customerId, "Main Branch", LocalDate.now(), BigDecimal.ZERO);
+                account = new SavingsAccount(number, customerId, branch, today, BigDecimal.ZERO);
                 break;
             case "INVESTMENT":
                 InvestmentAccount.validateInitialDeposit(initial);
-                a = new InvestmentAccount(number, customerId, "Main Branch", LocalDate.now(), BigDecimal.ZERO);
+                account = new InvestmentAccount(number, customerId, branch, today, BigDecimal.ZERO);
+                break;
+            case "CHEQUE":
+                account = new ChequeAccount(number, customerId, branch, today, BigDecimal.ZERO,
+                        employerName, companyAddress);
                 break;
             default:
-                a = new ChequeAccount(number, customerId, "Main Branch", LocalDate.now(),
-                        BigDecimal.ZERO, employer, companyAddress);
+                throw new BankException("Unknown account type: " + type);
         }
+
+        accountDAO.create(account);
         if (initial.signum() > 0) {
-            a.deposit(initial, "Initial deposit");
+            account.deposit(initial, "Initial deposit");
+            accountDAO.applyTransaction(account, account.getLastTransaction());
         }
-        STORE.add(a);
-        return a;
+        return account;
     }
 
     public Account deposit(String accountNumber, String amountText) throws BankException {
-        Account a = find(accountNumber);
-        a.deposit(parse(amountText));
-        return a;
+        Account account = load(accountNumber);
+        account.deposit(parseAmount(amountText));
+        accountDAO.applyTransaction(account, account.getLastTransaction());
+        return account;
     }
 
     public Account withdraw(String accountNumber, String amountText) throws BankException {
-        Account a = find(accountNumber);
-        a.withdraw(parse(amountText));
-        return a;
+        Account account = load(accountNumber);
+        account.withdraw(parseAmount(amountText));   // polymorphism: rules differ per account type
+        accountDAO.applyTransaction(account, account.getLastTransaction());
+        return account;
     }
 
     public List<Account> getAccounts(String customerId) {
-        List<Account> list = new ArrayList<>();
-        for (Account a : STORE) {
-            if (a.getCustomerId().equals(customerId)) {
-                list.add(a);
-            }
-        }
-        return list;
+        return accountDAO.findByCustomer(customerId);
+    }
+
+    public Account getAccount(String accountNumber) throws BankException {
+        return load(accountNumber);
     }
 
     public List<Transaction> getHistory(String accountNumber) {
-        try {
-            List<Transaction> list = new ArrayList<>(find(accountNumber).getTransactions());
-            Collections.reverse(list);
-            return list;
-        } catch (BankException e) {
-            return new ArrayList<>();
-        }
+        return transactionDAO.findByAccount(accountNumber);
     }
 
-    Account find(String accountNumber) throws BankException {
-        for (Account a : STORE) {
-            if (a.getAccountNumber().equals(accountNumber)) {
-                return a;
+    /** Pays one month of interest to every active interest-bearing account. */
+    public int payMonthlyInterest() throws BankException {
+        int paid = 0;
+        for (Account account : accountDAO.findAll()) {
+            if (account.isActive() && account instanceof InterestBearing) {
+                BigDecimal interest = ((InterestBearing) account).calculateInterest();
+                if (interest.signum() > 0) {
+                    account.creditInterest(interest);
+                    accountDAO.applyTransaction(account, account.getLastTransaction());
+                    paid++;
+                }
             }
         }
-        throw new BankException("Account not found.");
+        return paid;
     }
 
-    private static BigDecimal parse(String text) throws BankException {
+    public void setAccountActive(String accountNumber, boolean active) throws BankException {
+        load(accountNumber);
+        accountDAO.updateStatus(accountNumber, active);
+    }
+
+    private Account load(String accountNumber) throws BankException {
+        Account a = accountDAO.findByNumber(accountNumber);
+        if (a == null) {
+            throw new BankException("Account not found.");
+        }
+        return a;
+    }
+
+    private static BigDecimal parseAmount(String text) throws BankException {
+        if (text == null || text.isBlank()) {
+            throw new BankException("Enter an amount.");
+        }
         try {
-            return new BigDecimal(text.trim());
-        } catch (Exception e) {
+            BigDecimal value = new BigDecimal(text.trim().replace(",", ""));
+            if (value.signum() <= 0) {
+                throw new BankException("Amount must be greater than zero.");
+            }
+            return value.setScale(2, RoundingMode.HALF_UP);
+        } catch (NumberFormatException e) {
             throw new BankException("Please enter a valid number for the amount.");
         }
     }

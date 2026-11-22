@@ -5,6 +5,8 @@ import bw.bank.controller.AdminController;
 import bw.bank.controller.AuthController;
 import bw.bank.model.BankAdministrator;
 import bw.bank.model.Customer;
+import bw.bank.db.Database;
+import bw.bank.db.SampleData;
 import javafx.application.Application;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
@@ -18,6 +20,8 @@ public class MainApp extends Application {
 
     @Override
     public void start(Stage primaryStage) {
+        Database.init();
+        SampleData.seedIfEmpty();
         this.stage = primaryStage;
         stage.setTitle("BAC Banking System");
         showLogin();

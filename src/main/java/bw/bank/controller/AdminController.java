@@ -1,58 +1,61 @@
 package bw.bank.controller;
 
+import bw.bank.dao.CustomerDAO;
 import bw.bank.exception.BankException;
 import bw.bank.model.Account;
 import bw.bank.model.Customer;
-import bw.bank.model.InterestBearing;
 import bw.bank.model.Transaction;
 
-import java.math.BigDecimal;
-import java.util.ArrayList;
 import java.util.List;
 
-/** TEMPORARY in-memory version so the screens can run. Replaced by the real one in Step 6. */
+/** Administrator functions: search customers, update details, interest, open/close accounts. */
 public class AdminController {
-    private final AccountController accounts = new AccountController();
+    private final CustomerDAO customerDAO = new CustomerDAO();
+    private final AccountController accountController = new AccountController();
 
     public List<Customer> searchCustomers(String term) {
-        List<Customer> list = new ArrayList<>();
-        list.add(new Customer("CU100001", "Demo", "Customer", "Plot 1, Gaborone",
-                "71234567", "demo@example.com", "demo", "x"));
-        return list;
+        if (term == null || term.isBlank()) {
+            return customerDAO.findAll();
+        }
+        return customerDAO.search(term);
     }
 
     public void updateCustomer(String customerId, String address, String phone, String email)
             throws BankException {
-        // temporary: nothing is saved yet
+        Customer c = customerDAO.findById(customerId);
+        if (c == null) {
+            throw new BankException("Customer not found.");
+        }
+        if (address == null || address.isBlank()) {
+            throw new BankException("Address is required.");
+        }
+        if (!phone.trim().matches("[0-9+ ]{7,15}")) {
+            throw new BankException("Enter a valid phone number (7-15 digits).");
+        }
+        if (!email.trim().matches("[^@\\s]+@[^@\\s]+\\.[^@\\s]+")) {
+            throw new BankException("Enter a valid email address.");
+        }
+        c.updateDetails(address.trim(), phone.trim(), email.trim());
+        customerDAO.update(c);
     }
 
     public List<Account> getAccounts(String customerId) {
-        return accounts.getAccounts(customerId);
+        return accountController.getAccounts(customerId);
     }
 
     public List<Transaction> getHistory(String accountNumber) {
-        return accounts.getHistory(accountNumber);
+        return accountController.getHistory(accountNumber);
     }
 
     public int payMonthlyInterest() throws BankException {
-        int paid = 0;
-        for (Account a : AccountController.STORE) {
-            if (a.isActive() && a instanceof InterestBearing) {
-                BigDecimal interest = ((InterestBearing) a).calculateInterest();
-                if (interest.signum() > 0) {
-                    a.creditInterest(interest);
-                    paid++;
-                }
-            }
-        }
-        return paid;
+        return accountController.payMonthlyInterest();
     }
 
     public void closeAccount(String accountNumber) throws BankException {
-        accounts.find(accountNumber).setActive(false);
+        accountController.setAccountActive(accountNumber, false);
     }
 
     public void reopenAccount(String accountNumber) throws BankException {
-        accounts.find(accountNumber).setActive(true);
+        accountController.setAccountActive(accountNumber, true);
     }
 }
